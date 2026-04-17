@@ -1,3 +1,18 @@
+"""
+Клиент для инференса LLM-модели через HTTP API локального сервера Ollama.
+
+Скрипт читает набор запросов из prompts.json, последовательно отправляет каждый
+запрос на сервер Ollama через HTTP (эндпоинт /api/generate), собирает ответы
+модели и сохраняет их в отчёт inference_report.csv.
+
+Запуск:
+    python client.py
+
+Предварительные условия:
+    1. Установлен Ollama и запущен сервер: ollama serve
+    2. Скачана модель Qwen2.5:0.5B: ollama pull qwen2.5:0.5b
+"""
+
 import csv
 import json
 import sys
@@ -16,6 +31,21 @@ REQUEST_TIMEOUT = 180  # секунд на один запрос
 
 
 def load_prompts(path: str) -> list[str]:
+    """Загружает список запросов к модели из JSON-файла.
+
+    Ожидается, что файл содержит JSON-массив строк,
+    например ["Что такое...?", "Объясни..."].
+
+    Args:
+        path: путь к JSON-файлу со списком запросов.
+
+    Returns:
+        Список строк-запросов.
+
+    Raises:
+        FileNotFoundError: если файл не найден.
+        ValueError: если содержимое файла не является списком строк.
+    """
     file_path = Path(path)
     if not file_path.exists():
         raise FileNotFoundError(f"Файл с запросами не найден: {path}")
@@ -32,6 +62,17 @@ def load_prompts(path: str) -> list[str]:
 
 
 def check_server(url: str = OLLAMA_URL) -> bool:
+    """Проверяет доступность сервера Ollama.
+
+    Отправляет GET-запрос на корневой URL сервера и считает сервер
+    доступным, если получен ответ с кодом 200.
+
+    Args:
+        url: URL эндпоинта /api/generate сервера Ollama.
+
+    Returns:
+        True, если сервер отвечает, иначе False.
+    """
     base_url = url.rsplit("/api/", 1)[0]
     try:
         response = requests.get(base_url, timeout=5)
@@ -41,6 +82,20 @@ def check_server(url: str = OLLAMA_URL) -> bool:
 
 
 def query_ollama(prompt: str, model: str = MODEL_NAME, url: str = OLLAMA_URL) -> str:
+    """Отправляет один запрос к модели через HTTP API Ollama.
+
+    Использует эндпоинт /api/generate в режиме stream=False,
+    чтобы получить полный ответ модели одной JSON-структурой.
+
+    Args:
+        prompt: текст запроса к LLM.
+        model: имя модели в Ollama (по умолчанию qwen2.5:0.5b).
+        url: URL эндпоинта /api/generate.
+
+    Returns:
+        Строку с ответом модели (содержимое поля "response"),
+        либо текст ошибки с префиксом [ERROR], если запрос не удался.
+    """
     payload = {
         "model": model,
         "prompt": prompt,
@@ -61,6 +116,15 @@ def query_ollama(prompt: str, model: str = MODEL_NAME, url: str = OLLAMA_URL) ->
 
 
 def save_report(rows: list[tuple[str, str]], path: str = REPORT_FILE) -> None:
+    """Сохраняет пары (запрос, ответ) в CSV-отчёт.
+
+    Формат CSV: две колонки prompt и response с заголовком.
+    Использует UTF-8 с BOM, чтобы корректно открываться в Excel.
+
+    Args:
+        rows: список кортежей (prompt, response).
+        path: путь к CSV-файлу для сохранения.
+    """
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
         writer.writerow(["prompt", "response"])
@@ -68,6 +132,17 @@ def save_report(rows: list[tuple[str, str]], path: str = REPORT_FILE) -> None:
 
 
 def run_inference(prompts_path: str = PROMPTS_FILE, report_path: str = REPORT_FILE) -> None:
+    """Запускает полный цикл инференса.
+
+    1. Загружает запросы из JSON.
+    2. Проверяет доступность сервера Ollama.
+    3. Прогоняет каждый запрос и собирает ответы.
+    4. Сохраняет результат в CSV и выводит краткую сводку в консоль.
+
+    Args:
+        prompts_path: путь к файлу с запросами.
+        report_path: путь к итоговому CSV-отчёту.
+    """
     print(f"=== Инференс модели {MODEL_NAME} через {OLLAMA_URL} ===\n")
 
     if not check_server():
